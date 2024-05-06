@@ -75,6 +75,8 @@ func (rc *rpcClient) disconn() error {
 }
 
 func (rc *rpcClient) call(ctx context.Context, method string, args interface{}, reply interface{}) error {
+	retried := false
+_retry:
 	client, err := rc.conn()
 	if err != nil {
 		return err
@@ -82,7 +84,15 @@ func (rc *rpcClient) call(ctx context.Context, method string, args interface{}, 
 
 	select {
 	case call := <-client.Go(method, args, reply, make(chan *rpc.Call, 1)).Done:
-		return errors.As(call.Error)
+		err := call.Error
+		if errors.Equal(rpc.ErrShutdown, err) {
+			rc.disconn()
+			if !retried {
+				retried = true
+				goto _retry
+			}
+		}
+		return errors.As(err)
 	case <-ctx.Done():
 		return ctx.Err()
 	}
